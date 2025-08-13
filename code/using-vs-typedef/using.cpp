@@ -6,6 +6,7 @@
 #include <clang/Frontend/FrontendAction.h>
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/Tooling.h>
+
 #include "clang/Basic/Diagnostic.h"
 
 // LLVM includes
@@ -36,7 +37,7 @@ class MatchHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
 
     // Note: getLocation() points to the start of the typedef'd name,
     // e.g. `MyInt` in `typedef int MyInt`. So use `getLocStart()` instead.
-    Diagnostics.Report(Typedef->getLocStart(), ID).AddFixItHint(FixIt);
+    Diagnostics.Report(Typedef->getBeginLoc(), ID).AddFixItHint(FixIt);
   }
 };
 
@@ -70,7 +71,7 @@ class Action : public clang::ASTFrontendAction {
 }  // namespace UsingTool
 
 namespace {
-llvm::cl::OptionCategory UsingToolCategory("UsingTool Options");
+llvm::cl::OptionCategory ToolCategory("UsingTool Options");
 llvm::cl::extrahelp UsingToolCategoryHelp(R"(
     Verifies that you use `using` instead of `typedef`.
 
@@ -90,13 +91,19 @@ llvm::cl::extrahelp
     CommonHelp(clang::tooling::CommonOptionsParser::HelpMessage);
 }  // namespace
 
-auto main(int argc, const char* argv[]) -> int {
+int main(int argc, const char** argv) {
   using namespace clang::tooling;
 
-  CommonOptionsParser OptionsParser(argc, argv, UsingToolCategory);
+  auto ExpectedParser = CommonOptionsParser::create(argc, argv, ToolCategory);
+  if (!ExpectedParser) {
+    llvm::errs() << ExpectedParser.takeError();
+    return 1;
+  }
+
+  CommonOptionsParser& OptionsParser = ExpectedParser.get();
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 
-  auto action = newFrontendActionFactory<UsingTool::Action>();
-  return Tool.run(action.get());
+  const auto Action = newFrontendActionFactory<UsingTool::Action>();
+  return Tool.run(Action.get());
 }

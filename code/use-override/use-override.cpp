@@ -118,7 +118,7 @@ class Checker : public clang::RecursiveASTVisitor<Checker> {
       Location = MethodDecl.getLocation().getLocWithOffset(Offset);
     } else {
       const clang::ParmVarDecl* Last = *std::prev(MethodDecl.param_end());
-      Location = Last->getLocEnd();
+      Location = Last->getEndLoc();
     }
 
     // Given the current location, and the type of the token *just after* that
@@ -158,16 +158,16 @@ class Consumer : public clang::ASTConsumer {
   ///
   /// Forwards all arguments to the Checker.
   template <typename... Args>
-  explicit Consumer(Args&&... args) : Checker(std::forward<Args>(args)...) {}
+  explicit Consumer(Args&&... args) : checker(std::forward<Args>(args)...) {}
 
   /// Dispatches the `Checker` on a translation unit.
   void HandleTranslationUnit(clang::ASTContext& Context) override {
-    Checker.setContext(Context).TraverseDecl(Context.getTranslationUnitDecl());
+    checker.setContext(Context).TraverseDecl(Context.getTranslationUnitDecl());
   }
 
  private:
   /// The `Checker` to verify `override` usage.
-  Checker Checker;
+  Checker checker;
 };
 
 /// Creates the `ASTConsumer` and instantiates the `Rewriter`.
@@ -185,9 +185,8 @@ class Action : public clang::ASTFrontendAction {
     return std::make_unique<Consumer>(RewriteOption, Rewriter);
   }
 
-  bool BeginSourceFileAction(clang::CompilerInstance& Compiler,
-                             llvm::StringRef Filename) override {
-    llvm::errs() << "Processing " << Filename << "\n\n";
+  bool BeginSourceFileAction(clang::CompilerInstance& Compiler) override {
+    // llvm::errs() << "Processing " << Filename << "\n\n";
     return true;
   }
 
@@ -207,7 +206,7 @@ class Action : public clang::ASTFrontendAction {
 }  // namespace UseOverride
 
 namespace {
-llvm::cl::OptionCategory UseOverrideCategory("use-override options");
+llvm::cl::OptionCategory ToolCategory("use-override options");
 
 llvm::cl::extrahelp UseOverrideHelp(R"(
 This tool ensures that you use the 'override' keyword appropriately.
@@ -229,7 +228,7 @@ llvm::cl::opt<bool>
     RewriteOption("rewrite",
                   llvm::cl::init(false),
                   llvm::cl::desc("If set, emits rewritten source code"),
-                  llvm::cl::cat(UseOverrideCategory));
+                  llvm::cl::cat(ToolCategory));
 llvm::cl::alias
     RewriteShortOption("r",
                        llvm::cl::desc("Alias for the --rewrite option"),
@@ -240,15 +239,22 @@ llvm::cl::extrahelp
 }  // namespace
 
 struct ToolFactory : public clang::tooling::FrontendActionFactory {
-  clang::FrontendAction* create() override {
-    return new UseOverride::Action(RewriteOption);
+  std::unique_ptr<clang::FrontendAction> create() {
+    return std::make_unique<UseOverride::Action>(RewriteOption);
   }
 };
 
-auto main(int argc, const char* argv[]) -> int {
+
+int main(int argc, const char** argv) {
   using namespace clang::tooling;
 
-  CommonOptionsParser OptionsParser(argc, argv, UseOverrideCategory);
+  auto ExpectedParser = CommonOptionsParser::create(argc, argv, ToolCategory);
+  if (!ExpectedParser) {
+    llvm::errs() << ExpectedParser.takeError();
+    return 1;
+  }
+
+  CommonOptionsParser& OptionsParser = ExpectedParser.get();
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 

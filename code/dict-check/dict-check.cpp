@@ -16,16 +16,20 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
+
 // Standard includes
 #include <fstream>
 #include <memory>
 #include <string>
 
+
+using namespace clang::tooling;
+using namespace llvm;
+
 namespace DictionaryCheck {
 
 using Dictionary = llvm::StringSet<>;
 
-namespace {
 Dictionary ReadWordsFromFile(const std::string& Filename) {
   std::ifstream Stream(Filename);
   if (!Stream.good()) {
@@ -48,14 +52,12 @@ Dictionary ReadWordsFromFile(const std::string& Filename) {
 
   return Words;
 }
-}  // namespace
 
 class Checker : public clang::ast_matchers::MatchFinder::MatchCallback {
  public:
   using MatchResult = clang::ast_matchers::MatchFinder::MatchResult;
 
-  explicit Checker(const Dictionary&& Words) : Words(std::move(Words)) {
-  }
+  explicit Checker(const Dictionary&& Words) : Words(std::move(Words)) {}
 
   void run(const MatchResult& Result) {
     const auto* Target = Result.Nodes.getNodeAs<clang::NamedDecl>("target");
@@ -85,23 +87,23 @@ class Checker : public clang::ast_matchers::MatchFinder::MatchCallback {
 class Consumer : public clang::ASTConsumer {
  public:
   Consumer(const Dictionary&& Words, bool IncludeFunctions, bool IncludeRecords)
-  : Checker(std::move(Words)) {
+  : checker(std::move(Words)) {
     using namespace clang::ast_matchers;
 
     const auto VariableMatcher =
         declaratorDecl(unless(functionDecl())).bind("target");
-    MatchFinder.addMatcher(VariableMatcher, &Checker);
+    MatchFinder.addMatcher(VariableMatcher, &checker);
 
     if (IncludeFunctions) {
       const auto FunctionMatcher = functionDecl().bind("target");
-      MatchFinder.addMatcher(FunctionMatcher, &Checker);
+      MatchFinder.addMatcher(FunctionMatcher, &checker);
     }
 
     if (IncludeRecords) {
       // Avoid implicit class name.
       const auto RecordMatcher =
           recordDecl(unless(isImplicit())).bind("target");
-      MatchFinder.addMatcher(RecordMatcher, &Checker);
+      MatchFinder.addMatcher(RecordMatcher, &checker);
     }
   }
 
@@ -111,7 +113,7 @@ class Consumer : public clang::ASTConsumer {
 
  private:
   clang::ast_matchers::MatchFinder MatchFinder;
-  Checker Checker;
+  Checker checker;
 };
 
 class Action : public clang::ASTFrontendAction {
@@ -123,8 +125,7 @@ class Action : public clang::ASTFrontendAction {
          bool IncludeRecords)
   : DictionaryFile(DictionaryFile)
   , IncludeFunctions(IncludeFunctions)
-  , IncludeRecords(IncludeRecords) {
-  }
+  , IncludeRecords(IncludeRecords) {}
 
   ASTConsumerPointer CreateASTConsumer(clang::CompilerInstance& Compiler,
                                        llvm::StringRef Filename) {
@@ -142,8 +143,7 @@ class Action : public clang::ASTFrontendAction {
 };
 }  // namespace DictionaryCheck
 
-namespace {
-llvm::cl::OptionCategory DictionaryCheckCategory("DictionaryCheck Options");
+llvm::cl::OptionCategory ToolCategory("DictionaryCheck Options");
 
 llvm::cl::extrahelp DictionaryCheckCategoryHelp(R"(
   This tool verifies that you use readable names for your variables, functions,
@@ -155,7 +155,7 @@ llvm::cl::opt<std::string>
     DictionaryOption("dict",
                      llvm::cl::Required,
                      llvm::cl::desc("The dictionary file to load"),
-                     llvm::cl::cat(DictionaryCheckCategory));
+                     llvm::cl::cat(ToolCategory));
 llvm::cl::alias
     DictionaryShortOption("d",
                           llvm::cl::desc("Alias for the --dict option"),
@@ -164,7 +164,7 @@ llvm::cl::alias
 llvm::cl::opt<bool>
     FunctionsOption("functions",
                     llvm::cl::desc("Include function names in the check"),
-                    llvm::cl::cat(DictionaryCheckCategory));
+                    llvm::cl::cat(ToolCategory));
 llvm::cl::alias
     FunctionShortOption("f",
                         llvm::cl::desc("Alias for the --functions option"),
@@ -173,27 +173,29 @@ llvm::cl::alias
 llvm::cl::opt<bool>
     RecordsOption("records",
                   llvm::cl::desc("Include classes/structs/unions in the check"),
-                  llvm::cl::cat(DictionaryCheckCategory));
+                  llvm::cl::cat(ToolCategory));
 llvm::cl::alias
     RecordsShortOption("r",
                        llvm::cl::desc("Alias for the --records option"),
                        llvm::cl::aliasopt(RecordsOption));
 
-}  // namespace
-
-
 struct ToolFactory : public clang::tooling::FrontendActionFactory {
-  clang::FrontendAction* create() override {
-    return new DictionaryCheck::Action(DictionaryOption,
-                                       FunctionsOption,
-                                       RecordsOption);
+  std::unique_ptr<clang::FrontendAction> create() {
+    return std::make_unique<DictionaryCheck::Action>(DictionaryOption,
+                                                     FunctionsOption,
+                                                     RecordsOption);
   }
 };
 
-auto main(int argc, const char* argv[]) -> int {
-  using namespace clang::tooling;
 
-  CommonOptionsParser OptionsParser(argc, argv, DictionaryCheckCategory);
+int main(int argc, const char** argv) {
+  auto ExpectedParser = CommonOptionsParser::create(argc, argv, ToolCategory);
+  if (!ExpectedParser) {
+    llvm::errs() << ExpectedParser.takeError();
+    return 1;
+  }
+
+  CommonOptionsParser& OptionsParser = ExpectedParser.get();
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 

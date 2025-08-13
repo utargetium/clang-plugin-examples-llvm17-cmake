@@ -7,6 +7,7 @@
 #include <clang/Frontend/FrontendAction.h>
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/Tooling.h>
+
 #include "clang/Basic/Diagnostic.h"
 
 // LLVM includes
@@ -111,7 +112,7 @@ class Action : public clang::ASTFrontendAction {
 }  // namespace EnableIfTool
 
 namespace {
-llvm::cl::OptionCategory EnableIfToolCategory("EnableIfTool Options");
+llvm::cl::OptionCategory ToolCategory("EnableIfTool Options");
 llvm::cl::extrahelp EnableIfToolCategoryHelp(R"(
     Verifies that you use `std::enable_if_t` instead of `typename
     std::enable_if<...>::type` when using SFINAE on function return types.
@@ -134,13 +135,19 @@ llvm::cl::extrahelp
     CommonHelp(clang::tooling::CommonOptionsParser::HelpMessage);
 }  // namespace
 
-auto main(int argc, const char* argv[]) -> int {
+int main(int argc, const char** argv) {
   using namespace clang::tooling;
 
-  CommonOptionsParser OptionsParser(argc, argv, EnableIfToolCategory);
+  auto ExpectedParser = CommonOptionsParser::create(argc, argv, ToolCategory);
+  if (!ExpectedParser) {
+    llvm::errs() << ExpectedParser.takeError();
+    return 1;
+  }
+
+  CommonOptionsParser& OptionsParser = ExpectedParser.get();
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 
-  auto action = newFrontendActionFactory<EnableIfTool::Action>();
-  return Tool.run(action.get());
+  const auto Action = newFrontendActionFactory<EnableIfTool::Action>();
+  return Tool.run(Action.get());
 }

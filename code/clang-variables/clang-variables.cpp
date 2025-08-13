@@ -91,9 +91,8 @@ class Action : public clang::ASTFrontendAction {
     return std::make_unique<Consumer>();
   }
 
-  bool BeginSourceFileAction(clang::CompilerInstance& Compiler,
-                             llvm::StringRef Filename) override {
-    llvm::errs() << "Processing " << Filename << "\n\n";
+  bool BeginSourceFileAction(clang::CompilerInstance& Compiler) override {
+    // llvm::errs() << "Processing " << Filename << "\n\n";
     return true;
   }
 
@@ -120,10 +119,16 @@ llvm::cl::extrahelp
     CommonHelp(clang::tooling::CommonOptionsParser::HelpMessage);
 }  // namespace
 
-auto main(int argc, const char* argv[]) -> int {
+int main(int argc, const char** argv) {
   using namespace clang::tooling;
 
-  CommonOptionsParser OptionsParser(argc, argv, ToolCategory);
+  auto ExpectedParser = CommonOptionsParser::create(argc, argv, ToolCategory);
+  if (!ExpectedParser) {
+    llvm::errs() << ExpectedParser.takeError();
+    return 1;
+  }
+
+  CommonOptionsParser& OptionsParser = ExpectedParser.get();
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 

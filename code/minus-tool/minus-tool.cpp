@@ -195,7 +195,7 @@ class Action : public clang::ASTFrontendAction {
 }  // namespace MinusTool
 
 namespace {
-llvm::cl::OptionCategory MinusToolCategory("minus-tool options");
+llvm::cl::OptionCategory ToolCategory("minus-tool options");
 
 llvm::cl::extrahelp MinusToolCategoryHelp(R"(
 This tool turns all your plusses into minuses, because why not.
@@ -214,13 +214,13 @@ llvm::cl::opt<bool>
     RewriteOption("rewrite",
                   llvm::cl::init(false),
                   llvm::cl::desc("If set, emits rewritten source code"),
-                  llvm::cl::cat(MinusToolCategory));
+                  llvm::cl::cat(ToolCategory));
 
 llvm::cl::opt<std::string> RewriteSuffixOption(
     "rewrite-suffix",
     llvm::cl::desc("If -rewrite is set, changes will be rewritten to a file "
                    "with the same name, but this suffix"),
-    llvm::cl::cat(MinusToolCategory));
+    llvm::cl::cat(ToolCategory));
 
 llvm::cl::extrahelp
     CommonHelp(clang::tooling::CommonOptionsParser::HelpMessage);
@@ -229,15 +229,23 @@ llvm::cl::extrahelp
 /// A custom \c FrontendActionFactory so that we can pass the options
 /// to the constructor of the tool.
 struct ToolFactory : public clang::tooling::FrontendActionFactory {
-  clang::FrontendAction* create() override {
-    return new MinusTool::Action(RewriteOption, RewriteSuffixOption);
+  std::unique_ptr<clang::FrontendAction> create() {
+    return std::make_unique<MinusTool::Action>(RewriteOption,
+                                               RewriteSuffixOption);
   }
 };
 
-auto main(int argc, const char* argv[]) -> int {
+
+int main(int argc, const char** argv) {
   using namespace clang::tooling;
 
-  CommonOptionsParser OptionsParser(argc, argv, MinusToolCategory);
+  auto ExpectedParser = CommonOptionsParser::create(argc, argv, ToolCategory);
+  if (!ExpectedParser) {
+    llvm::errs() << ExpectedParser.takeError();
+    return 1;
+  }
+
+  CommonOptionsParser& OptionsParser = ExpectedParser.get();
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 

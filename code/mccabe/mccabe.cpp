@@ -87,14 +87,13 @@ class Action : public clang::ASTFrontendAction {
     return std::make_unique<Consumer>(Threshold);
   }
 
-  bool BeginSourceFileAction(clang::CompilerInstance& Compiler,
-                             llvm::StringRef Filename) override {
+  bool BeginSourceFileAction(clang::CompilerInstance& Compiler) override {
     const auto& Language = Compiler.getLangOpts();
 
     // clang-format off
-    llvm::outs() << "Processing '" << Filename
-                 << "' (Signed overflow: " << Language.isSignedOverflowDefined()
-                 << ")\n";
+    // llvm::outs() << "Processing '" << Filename
+    //              << "' (Signed overflow: " << Language.isSignedOverflowDefined()
+    //              << ")\n";
     // clang-format on
 
     return true;
@@ -110,7 +109,7 @@ class Action : public clang::ASTFrontendAction {
 }  // namespace McCabe
 
 namespace {
-llvm::cl::OptionCategory McCabeCategory("McCabe Options");
+llvm::cl::OptionCategory ToolCategory("McCabe Options");
 
 llvm::cl::extrahelp McCabeCategoryHelp(R"(
     Computes the McCabe (Cyclomatic) Complexity for each function in the given
@@ -121,7 +120,7 @@ llvm::cl::opt<unsigned>
     ThresholdOption("threshold",
                     llvm::cl::init(2),
                     llvm::cl::desc("The threshold for emitting warnings"),
-                    llvm::cl::cat(McCabeCategory));
+                    llvm::cl::cat(ToolCategory));
 llvm::cl::alias ShortThresholdOption("t",
                                      llvm::cl::desc("Alias for -threshold"),
                                      llvm::cl::aliasopt(ThresholdOption));
@@ -129,15 +128,21 @@ llvm::cl::alias ShortThresholdOption("t",
 }  // namespace
 
 struct ToolFactory : public clang::tooling::FrontendActionFactory {
-  clang::FrontendAction* create() override {
-    return new McCabe::Action(ThresholdOption);
+  std::unique_ptr<clang::FrontendAction> create() {
+    return std::make_unique<McCabe::Action>(ThresholdOption);
   }
 };
 
-auto main(int argc, const char* argv[]) -> int {
+int main(int argc, const char** argv) {
   using namespace clang::tooling;
 
-  CommonOptionsParser OptionsParser(argc, argv, McCabeCategory);
+  auto ExpectedParser = CommonOptionsParser::create(argc, argv, ToolCategory);
+  if (!ExpectedParser) {
+    llvm::errs() << ExpectedParser.takeError();
+    return 1;
+  }
+
+  CommonOptionsParser& OptionsParser = ExpectedParser.get();
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 

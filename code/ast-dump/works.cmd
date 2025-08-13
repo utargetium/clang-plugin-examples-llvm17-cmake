@@ -1,0 +1,1 @@
+clang++-17 -isystem /usr/lib/llvm-17/include/ -Wall -Wextra -pedantic -Wno-unused-parameter -fno-exceptions -fno-rtti -std=c++14 ast-dump.cpp -lclang

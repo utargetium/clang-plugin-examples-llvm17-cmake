@@ -23,6 +23,7 @@
 #include <llvm/Support/raw_ostream.h>
 
 // Standard Includes
+#include <iostream>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -31,27 +32,28 @@ namespace IncludeSorter {
 
 /// Represents an include in source code.
 struct Include {
-  Include(const std::string& Filename, bool Angled)
+  Include(llvm::StringRef Filename, bool Angled)
   : Filename(Filename), Angled(Angled) {}
-
   /// The name of the included file.
   std::string Filename;
-
   /// Wether the file was included with angle brackets.
   bool Angled;
 };
 
 namespace {
 
+
 /// Takes a vector of includes and sorts them lexicographically, optionally in
 /// reverse order.
 std::string
 sortIncludes(llvm::SmallVectorImpl<Include>& Includes, bool Reverse) {
   /// Sort the includes in-place first.
-  std::sort(Includes.begin(), Includes.end(), [=](auto& first, auto& second) {
-    return Reverse ? (first.Filename > second.Filename)
-                   : (first.Filename < second.Filename);
-  });
+  std::sort(Includes.begin(),
+            Includes.end(),
+            [=](Include first, Include second) {
+              return Reverse ? (first.Filename > second.Filename)
+                             : (first.Filename < second.Filename);
+            });
 
   /// Join the includes back together.
   std::string JoinedLines;
@@ -85,20 +87,20 @@ class PreprocessorCallback : public clang::PPCallbacks {
   , Rewriter(Rewriter)
   , Reverse(Reverse) {}
 
-  /// Collects the included file and possibly performs a sorting.
   void InclusionDirective(clang::SourceLocation HashLocation,
                           const clang::Token&,
                           llvm::StringRef Filename,
                           bool Angled,
                           clang::CharSourceRange Range,
-                          const clang::FileEntry*,
-                          llvm::StringRef,
-                          llvm::StringRef,
-                          const clang::Module*) override {
+                          const clang::OptionalFileEntryRef File,
+                          llvm::StringRef searchPath,
+                          llvm::StringRef RelativePath,
+                          const clang::Module* suggestedModule,
+                          clang::SrcMgr::CharacteristicKind FileType) override {
     if (!SourceManager.isInMainFile(HashLocation)) return;
 
     // Need to find the line number.
-    const auto[FileID, Offset] = SourceManager.getDecomposedLoc(HashLocation);
+    const auto [FileID, Offset] = SourceManager.getDecomposedLoc(HashLocation);
 
     bool Invalid = false;
     const unsigned LineNumber =
@@ -170,8 +172,7 @@ class Action : public clang::PreprocessOnlyAction {
   }
 
   /// Adds our preprocessor callback to the compiler instance.
-  bool BeginSourceFileAction(clang::CompilerInstance& Compiler,
-                             llvm::StringRef Filename) override {
+  bool BeginSourceFileAction(clang::CompilerInstance& Compiler) override {
     auto hooks = std::make_unique<PreprocessorCallback>(Rewriter, Reverse);
     Compiler.getPreprocessor().addPPCallbacks(std::move(hooks));
     return true;
@@ -209,16 +210,25 @@ llvm::cl::alias
 
 /// A custom `FrontendActionFactory` so that we can pass the options
 /// to the constructor of the tool.
+
+
 struct ToolFactory : public clang::tooling::FrontendActionFactory {
-  clang::FrontendAction* create() override {
-    return new IncludeSorter::Action(ReverseOption);
+  std::unique_ptr<clang::FrontendAction> create() {
+    return std::make_unique<IncludeSorter::Action>(ReverseOption);
   }
 };
 
-auto main(int argc, const char* argv[]) -> int {
+int main(int argc, const char* argv[]) {
   using namespace clang::tooling;
 
-  CommonOptionsParser OptionsParser(argc, argv, includeSorterCategory);
+  auto ExpectedParser =
+      CommonOptionsParser::create(argc, argv, includeSorterCategory);
+  if (!ExpectedParser) {
+    llvm::errs() << ExpectedParser.takeError();
+    return 1;
+  }
+
+  CommonOptionsParser& OptionsParser = ExpectedParser.get();
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 

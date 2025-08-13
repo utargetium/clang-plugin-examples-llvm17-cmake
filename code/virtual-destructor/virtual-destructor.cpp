@@ -6,6 +6,7 @@
 #include <clang/Frontend/FrontendAction.h>
 #include <clang/Tooling/CommonOptionsParser.h>
 #include <clang/Tooling/Tooling.h>
+
 #include "clang/Basic/Diagnostic.h"
 
 // LLVM includes
@@ -29,7 +30,7 @@ class MatchHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
 
     // Insert the new name of the base class or return if we've seen it already.
     const std::string BaseName = Base->getQualifiedNameAsString();
-    if (auto[_, Success] = BaseNames.insert(BaseName); !Success) {
+    if (auto [_, Success] = BaseNames.insert(BaseName); !Success) {
       return;
     }
 
@@ -45,7 +46,7 @@ class MatchHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
     // We can even warn about missing virtual when the user forgot to declare
     // the destructor alltogether! In that case, the diagnostic should point to
     // the class declaration instead of the destructor declaration.
-    auto Location = Destructor->isUserProvided() ? Destructor->getLocStart()
+    auto Location = Destructor->isUserProvided() ? Destructor->getBeginLoc()
                                                  : Base->getLocation();
 
     clang::DiagnosticBuilder Builder = Diagnostics.Report(Location, ID);
@@ -107,8 +108,7 @@ class Action : public clang::ASTFrontendAction {
 }  // namespace VirtualDestructorTool
 
 namespace {
-llvm::cl::OptionCategory
-    VirtualDestructorToolCategory("VirtualDestructorTool Options");
+llvm::cl::OptionCategory ToolCategory("VirtualDestructorTool Options");
 llvm::cl::extrahelp VirtualDestructorToolCategoryHelp(R"(
     Verifies that destructors are declared 'virtual' in case at least one class
     derives from it. Also warns about a missing destructor if no user-provided
@@ -117,13 +117,20 @@ llvm::cl::extrahelp VirtualDestructorToolCategoryHelp(R"(
 
 }  // namespace
 
-auto main(int argc, const char* argv[]) -> int {
+
+int main(int argc, const char** argv) {
   using namespace clang::tooling;
 
-  CommonOptionsParser OptionsParser(argc, argv, VirtualDestructorToolCategory);
+  auto ExpectedParser = CommonOptionsParser::create(argc, argv, ToolCategory);
+  if (!ExpectedParser) {
+    llvm::errs() << ExpectedParser.takeError();
+    return 1;
+  }
+
+  CommonOptionsParser& OptionsParser = ExpectedParser.get();
   ClangTool Tool(OptionsParser.getCompilations(),
                  OptionsParser.getSourcePathList());
 
-  auto Action = newFrontendActionFactory<VirtualDestructorTool::Action>();
+  const auto Action = newFrontendActionFactory<VirtualDestructorTool::Action>();
   return Tool.run(Action.get());
 }
