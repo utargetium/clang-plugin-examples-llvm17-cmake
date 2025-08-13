@@ -1,6 +1,20 @@
-# C++Now 2017: clang-useful
+# Clang Plugin Examples
 
-Slides and code samples for my talk at C++Now 2017.
+## Original
+- repo name: clang-useful
+- talk by Peter Goldsborough
+- at cppnow 2017
+- link: https://www.youtube.com/watch?v=E6i8jmiy8MY
+
+## my changes
+- added `llvm17` support
+- added `cmake`
+
+> dockerfile is not updated
+
+----
+
+# Original Readme
 
 ## Contents
 
